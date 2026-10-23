@@ -115,8 +115,8 @@ API 版本边界（按 git 历史核实）：
 三种方式任选其一（装完都要**重启 `dsh web`**，然后浏览器 `Ctrl+Shift+R`）：
 
 ```powershell
-# 1) npm（推荐）
-dsh plugin --profile web add dsh-auto-handoff
+# 1) npm（暂未发布，先用 2 或 3）
+dsh plugin --profile web add dsh-auto-handoff   # npm 上暂未发布，这条暂时会 404
 
 # 2) GitHub
 dsh plugin --profile web add github:Linglin-Xu/dsh-auto-handoff

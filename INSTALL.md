@@ -22,10 +22,10 @@ DSH（DeepSeek Harness）的会话交接插件：**默认手动**，点输入框
 
 装完都要：**重启 `dsh web`** → 浏览器 **Ctrl+Shift+R 硬刷新**。
 
-### 方式 1：npm（推荐给用户）
+### 方式 1：npm（⚠️ 暂未发布，跳过这一条，用下面 GitHub / tgz 方式）
 
 ```powershell
-dsh plugin --profile web add dsh-auto-handoff
+dsh plugin --profile web add dsh-auto-handoff   # npm 上暂未发布，这条暂时会 404
 ```
 
 ### 方式 2：GitHub
@@ -102,7 +102,7 @@ curl.exe -s http://127.0.0.1:3080/api/dsh-auto-handoff/status
 
 ```powershell
 # 升级
-dsh plugin --profile web add dsh-auto-handoff
+dsh plugin --profile web add dsh-auto-handoff   # npm 上暂未发布，这条暂时会 404
 # 卸载
 dsh plugin --profile web remove dsh-auto-handoff
 Remove-Item -Recurse -Force "$env:USERPROFILE\.dsh\skills\auto-handoff"
