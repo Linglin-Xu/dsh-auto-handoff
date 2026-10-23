@@ -1,0 +1,69 @@
+{
+  "name": "dsh-auto-handoff",
+  "version": "0.3.0",
+  "description": "DSH 会话交接（默认手动）：一键把当前对话压缩成交接文档、带上未完成的任务与后台任务清单，在新会话里继续；输入框底栏常驻「轮数 / 占用 / 压缩次数」状态胶囊、阈值提醒与设置面板。Manual-first session handoff for DeepSeek Harness.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "context",
+    "context-window",
+    "compaction",
+    "handoff",
+    "session",
+    "manual"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "skill",
+    "cordis.patch.yml",
+    "README.md",
+    "INSTALL.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.1.7-alpha.1 <0.3.0"
+  },
+  "scripts": {
+    "test": "powershell -ExecutionPolicy Bypass -File test/run-tests.ps1",
+    "test:handover": "node test/handover.test.mjs",
+    "test:smoke": "node test/smoke.mjs",
+    "test:host": "node test/host-check.mjs"
+  },
+  "author": "Linglin-Xu",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Linglin-Xu/dsh-auto-handoff.git"
+  },
+  "homepage": "https://github.com/Linglin-Xu/dsh-auto-handoff#readme",
+  "bugs": {
+    "url": "https://github.com/Linglin-Xu/dsh-auto-handoff/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  }
+}

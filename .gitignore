@@ -1,0 +1,6 @@
+node_modules/
+backup/
+*.tgz
+*.log
+.dsh-ops-update-*.lock
+*.bak*

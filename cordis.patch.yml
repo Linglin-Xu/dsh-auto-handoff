@@ -1,0 +1,15 @@
+# ============================================================================
+# dsh-auto-handoff —— DSH bundle patch
+# ============================================================================
+# 把这个插件的宿主半边挂进 Web profile 的配置树。
+# 客户端半边（lib/client.js）由 package.json 的 dsh.client 声明自动挂载，
+# 它负责在交接完成后把浏览器切到新会话。
+#
+# 安装：
+#   dsh plugin --profile web add dsh-auto-handoff
+#   （本地开发用 link:<插件绝对路径>，例如 link:D:\code\dsh-auto-handoff）
+# ============================================================================
+
+- insert:
+    - id: dsh-auto-handoff
+      name: dsh-auto-handoff
