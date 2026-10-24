@@ -36,10 +36,10 @@ dsh plugin --profile web add github:Linglin-Xu/dsh-auto-handoff
 
 ### 方式 3：本地 tgz（离线分发）
 
-拿到 `dsh-auto-handoff-0.3.0.tgz` 后：
+拿到 `dsh-auto-handoff-0.3.1.tgz` 后：
 
 ```powershell
-dsh plugin --profile web add file:C:\path\to\dsh-auto-handoff-0.3.0.tgz
+dsh plugin --profile web add file:C:\path\to\dsh-auto-handoff-0.3.1.tgz
 ```
 
 ### 方式 4：本地目录（开发用，改代码即时生效）

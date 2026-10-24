@@ -74,7 +74,7 @@ dsh-auto-handoff:
   promptCompactions: 2      # 提示：压缩次数
   uiEnabled: true           # 是否显示输入框底栏的状态胶囊与按钮
   maxInputChars: 20000      # 回放给摘要调用的字符预算（从最新往回保留）
-  maxTokens: 2048           # 摘要输出上限
+  maxTokens: 4096           # 摘要输出上限
   provider: ''              # 摘要调用指定 provider（留空则用源会话路由）
   model: ''                 # 摘要调用指定 model（留空则用源会话路由）
   cooldownMs: 60000         # 同一会话两次交接的最小间隔

@@ -66,7 +66,15 @@ function makeSession(id, { cwd = 'E:\\work', turns = 3, preset = 'default', todo
     // not an `events` property — reading that used to crash every live session.
     snapshotEvents: () => events,
     surface: { nodes, replaceGeneration: 0, contentGeneration: 0 },
-    deriveEventMessage: (event) => ({ role: 'user', content: event.data.content }),
+    /** Faithful roles: the summarization replay anchors on a user message. */
+    deriveEventMessage: (event) => {
+      const payload = event.data.message ?? event.data
+      return {
+        role: event.type === 'assistant/message' ? 'assistant' : event.type === 'tool/result' ? 'tool' : 'user',
+        content: payload.content ?? [],
+        ...(event.type === 'tool/result' ? { toolCallId: payload.toolCallId } : {}),
+      }
+    },
     requestHeader: () => ({ config: { provider: 'deepseek', model: 'deepseek-chat' } }),
     append: (type, data) => { events.push({ type, data }); return events.length },
   }
@@ -117,6 +125,8 @@ const sessions = {
 }
 /** Optional one-shot hook run inside the summarization stream, to stage a source that keeps working. */
 let duringSummarize
+/** When set, the next summarization stream reports a token-capped finish. */
+let truncateSummarize = false
 const llm = {
   async resolveModelInfo(provider, model) {
     return { context: { contextWindow: 100_000 } }
@@ -133,6 +143,11 @@ const llm = {
     yield { type: 'text-delta', index: 0, text }
     yield { type: 'block-end', index: 0, block: { type: 'text', text } }
     yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 12 } }
+    if (truncateSummarize) {
+      truncateSummarize = false
+      yield { type: 'finish', reason: { kind: 'max-tokens' } }
+      return
+    }
     yield { type: 'finish', reason: { kind: 'stop' } }
   },
 }
@@ -254,7 +269,7 @@ if (streamed.length === 1) {
   check('summarization reuses the source route', call.provider === 'deepseek' && call.model === 'deepseek-chat')
   check('summarization replays the conversation prefix', Array.isArray(call.messages) && call.messages.length >= 6)
   check('summarization keeps the tool envelope', call.tools === undefined || Array.isArray(call.tools))
-  check('summarization caps output tokens', call.maxTokens === 2048)
+  check('summarization caps output tokens', call.maxTokens === 4096)
 }
 check('one fresh session created', created.length === 1, `got ${created.length}`)
 check('fresh session was created through the session controller', createRequests.length === 1, `got ${createRequests.length}`)
@@ -363,6 +378,9 @@ check('status reports one handoff', status.payload?.handoffs?.length === 1, JSON
 check('status reports the trigger as auto', status.payload?.handoffs?.[0]?.trigger === 'auto')
 check('status exposes the fresh session id', status.payload?.handoffs?.[0]?.newSessionId === created[0]?.id)
 check('status handoff record keeps the source session id', status.payload?.handoffs?.[0]?.sourceSessionId === 'session-source')
+check('the handoff record carries the summarization usage',
+  status.payload?.handoffs?.[0]?.usage?.inputTokens === 10,
+  JSON.stringify(status.payload?.handoffs?.[0]?.usage))
 check('status reports the occupancy checks that ran', (status.payload?.stats?.checks ?? 0) >= 1,
   JSON.stringify(status.payload?.stats))
 check('status exposes the UI switch', status.payload?.ui?.enabled === true, JSON.stringify(status.payload?.ui))
@@ -371,6 +389,9 @@ const pendingFirst = await hit('/api/dsh-auto-handoff/pending', {
   url: `/api/dsh-auto-handoff/pending?sessionId=${session.id}`,
 })
 check('pending route returns the handoff', pendingFirst.payload?.pending?.newSessionId === created[0]?.id)
+check('the pending record carries the summarization usage',
+  pendingFirst.payload?.pending?.usage?.inputTokens === 10,
+  JSON.stringify(pendingFirst.payload?.pending?.usage))
 const pendingSecond = await hit('/api/dsh-auto-handoff/pending', {
   url: `/api/dsh-auto-handoff/pending?sessionId=${session.id}`,
 })
@@ -483,6 +504,97 @@ check('manual mode never hands off on its own', created.length === createdBefore
 const queueRun = await hit('/api/dsh-auto-handoff/queue', { method: 'POST', body: { sessionId: 'session-manual' } })
 check('queue runs the manual handoff on a quiescent source', queueRun.status === 200 && created.length === createdBeforeManual + 1,
   JSON.stringify(queueRun.payload))
+
+// ---------------------------------------- surface without replayable user text
+// A fully compacted / tool-only surface still carries task state: the button
+// must hand off the task block instead of failing with "no replayable messages".
+const noReplay = makeSession('session-no-replay', {
+  todos: [{ content: '继续改', status: 'in_progress' }],
+  lastUser: '把登录页做完',
+})
+const noReplayLog = noReplay.snapshotEvents()
+for (let index = noReplayLog.length - 1; index >= 0; index -= 1) {
+  if (noReplayLog[index].type === 'user/message') noReplayLog.splice(index, 1)
+}
+noReplay.surface.nodes = noReplayLog
+  .map((event, index) => (event.type.endsWith('message') ? index : -1))
+  .filter(index => index >= 0)
+sessions.store.set(noReplay.id, noReplay)
+const streamedBeforeNoReplay = streamed.length
+const createdBeforeNoReplay = created.length
+const noReplayResult = await hit('/api/dsh-auto-handoff/queue', { method: 'POST', body: { sessionId: noReplay.id } })
+check('a session without replayable user messages still hands off', noReplayResult.status === 200
+  && created.length === createdBeforeNoReplay + 1, JSON.stringify(noReplayResult.payload))
+check('the fallback handoff skips the summarization call', streamed.length === streamedBeforeNoReplay, `got ${streamed.length}`)
+const noReplayText = JSON.stringify(sent.at(-1)?.message?.content ?? [])
+check('the fallback checkpoint carries the task state', noReplayText.includes('待办清单') && noReplayText.includes('[~] 继续改'),
+  noReplayText.slice(0, 160))
+
+// ------------------------------------- image-bearing tool result keeps pairing
+// Dropping an image message used to leave its tool call unanswered, which the
+// provider rejects with "Messages tool calls need immediate results".
+const imageReplay = makeSession('session-image-replay', {
+  turns: 1,
+  todos: [{ content: '继续改', status: 'in_progress' }],
+})
+const imageLog = imageReplay.snapshotEvents()
+imageLog.push({
+  type: 'assistant/message',
+  data: {
+    turn: 1,
+    step: 2,
+    message: {
+      content: [
+        { type: 'text', text: '截图看一下' },
+        { type: 'tool-call', id: 'call_image_1', name: 'browser_screenshot', arguments: '{}' },
+      ],
+    },
+  },
+})
+imageLog.push({
+  type: 'tool/result',
+  data: {
+    turn: 1,
+    step: 2,
+    message: { toolCallId: 'call_image_1', content: [{ type: 'image', attachment: 'shot' }] },
+  },
+})
+imageReplay.surface.nodes = imageLog
+  .map((event, index) => ((event.type.endsWith('message') || event.type === 'tool/result') ? index : -1))
+  .filter(index => index >= 0)
+sessions.store.set(imageReplay.id, imageReplay)
+const imageResult = await hit('/api/dsh-auto-handoff/queue', { method: 'POST', body: { sessionId: imageReplay.id } })
+check('a source with an image tool result still hands off', imageResult.status === 200, JSON.stringify(imageResult.payload))
+const imageReplayMessages = streamed.at(-1)?.messages ?? []
+check('the replay never carries image blocks',
+  !imageReplayMessages.some(message => (message.content ?? []).some(block => block?.type === 'image')),
+  JSON.stringify(imageReplayMessages).slice(0, 200))
+const callIndex = imageReplayMessages.findIndex(message => (message.content ?? []).some(block => block?.type === 'tool-call'))
+check('an image-bearing tool result stays immediately after its call',
+  callIndex >= 0 && imageReplayMessages[callIndex + 1]?.role === 'tool'
+  && imageReplayMessages[callIndex + 1]?.toolCallId === 'call_image_1',
+  JSON.stringify(imageReplayMessages.slice(callIndex, callIndex + 2)).slice(0, 240))
+
+// ------------------------------------------- truncated summary still hands off
+// A summary that hits the output cap keeps its partial text and the handoff
+// proceeds with a note instead of failing the button.
+const truncatedSource = makeSession('session-truncated', {
+  turns: 2,
+  todos: [{ content: '继续改', status: 'in_progress' }],
+})
+sessions.store.set(truncatedSource.id, truncatedSource)
+truncateSummarize = true
+const createdBeforeTruncated = created.length
+const truncatedResult = await hit('/api/dsh-auto-handoff/queue', { method: 'POST', body: { sessionId: truncatedSource.id } })
+check('a token-capped summary still hands off',
+  truncatedResult.status === 200 && created.length === createdBeforeTruncated + 1,
+  JSON.stringify(truncatedResult.payload))
+const truncatedText = JSON.stringify(sent.at(-1)?.message?.content ?? [])
+check('the checkpoint marks the summary as truncated', truncatedText.includes('截断'), truncatedText.slice(0, 160))
+const truncatedStatus = await hit('/api/dsh-auto-handoff/status')
+check('the handoff record reports truncation',
+  truncatedStatus.payload?.handoffs?.some(record => record.sourceSessionId === 'session-truncated' && record.truncated === true),
+  JSON.stringify(truncatedStatus.payload?.handoffs?.at(-1)))
 
 // ------------------------------------------------------------- teardown
 owner.dispose()

@@ -33,6 +33,9 @@ Manual-first session handoff for DeepSeek Harness: one button condenses the conv
 | `promptRounds` | 到多少轮提示（中优先级，琥珀色） | 10 |
 | `promptPercent` | 上下文占用到百分之几提示（低优先级，蓝色；0~1） | 0.6 |
 
+
+交接完成后右上角会弹一条提示：**本次摘要消耗的输入 / 输出 token**（含缓存读取）；同一份数据也记在 `/status` 的 `handoffs[].usage` 里，方便你核对每次交接的真实成本。
+
 这三个值可以在胶囊旁的 ⚙ 面板里改（存到 `$DSH_HOME/auto-handoff-ui.json`，重启不丢），也可以用 `POST /api/dsh-auto-handoff/ui-config`。
 
 想要旧的自动行为：打开 `autoHandoff`，则同一会话满足「已完成轮数 ≥ `minRounds`（默认 3）」且「上下文占用 ≥ `threshold`（默认 0.8）」时自动交接一次。占用 = `contextPressure` 投影的 `projectedTokens ?? pressureTokens`（与 GUI 状态栏同一份投影；没有该投影时退回 `tokenMeter.measure().totalTokens`）÷ 当前 provider/model 的 `contextWindow`。
@@ -144,7 +147,7 @@ dsh-auto-handoff:
   promptCompactions: 2      # 提示：压缩次数
   uiEnabled: true           # 是否显示输入框底栏的状态胶囊与按钮
   maxInputChars: 20000      # 回放给摘要调用的字符预算（从最新往回保留）
-  maxTokens: 2048           # 摘要输出上限
+  maxTokens: 4096           # 摘要输出上限
   provider: ''              # 摘要调用的 provider（留空 = 跟源会话路由）
   model: ''                 # 摘要调用的 model（留空 = 跟源会话路由）
   cooldownMs: 60000         # 同一会话两次交接的最小间隔
@@ -157,6 +160,8 @@ dsh-auto-handoff:
 `autoContinue: auto`（默认）只在交接块里还有 `pending` / `in_progress` 项时才续跑；任务已全部完成就保持安静，不会无端消耗一次模型调用。
 
 ## HTTP 接口
+
+- 每条 `handoffs` 记录带 `usage`（本次摘要的 `inputTokens` / `outputTokens` / `cacheReadTokens`），可用来说明每次交接的真实消耗；`truncated: true` 表示摘要被输出上限截断但仍完成交接。
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
