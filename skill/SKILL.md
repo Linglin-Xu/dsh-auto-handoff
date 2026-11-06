@@ -6,12 +6,12 @@ whenToUse: 用户抱怨上下文变长/接近上限、要求把当前对话交�
 
 # 会话交接（auto-handoff）
 
-本技能由 **dsh-auto-handoff** 插件驱动。**默认是手动模式**：输入框底栏有一个状态胶囊（`压缩 2 · 12 轮 · 34%`）和「交接」按钮，按按钮才执行「摘要 → 新建会话 → 投递交接文档 → 浏览器切换」；agent 正跑着一轮时按钮会**排队到轮次结束**再执行，绝不切断工具调用。宿主侧同时负责阈值提示（轮数 / 占用 / 压缩次数）和 `/status` 指标。
+本技能由 **dsh-auto-handoff** 插件驱动。**默认是手动模式**：输入框底栏有一个状态胶囊（环形进度 + `12 轮 · 34%`，到阈值时会追加「压缩 N」「已排队」等标签）和「交接」按钮，按按钮才执行「摘要 → 新建会话 → 投递交接文档 → 浏览器切换」；agent 正跑着一轮时按钮会**排队到轮次结束**再执行，绝不切断工具调用。宿主侧同时负责阈值提示（轮数 / 占用 / 压缩次数）和 `/status` 指标。
 
 ## 触发方式
 
 - **手动（默认）**：输入框底栏「交接」按钮，或 `POST /api/dsh-auto-handoff/queue`（`{sessionId}`）；若源会话不静默则返回 202 排队，等 `turn/end` / 空闲时自动执行。
-- **提示阈值**：胶囊按 `promptRounds`（默认 10 轮）/ `promptPercent`（默认 0.6）/ `promptCompactions`（默认 2 次）变色并弹 toast，**只提示，不自动切换**。可在胶囊旁 ⚙ 面板或 `POST /api/dsh-auto-handoff/ui-config` 修改（持久化到 `$DSH_HOME/auto-handoff-ui.json`）。
+- **提示阈值**：胶囊按 `promptRounds`（默认 10 轮）/ `promptPercent`（默认 0.6）/ `promptCompactions`（默认 2 次）变色并弹 toast，**只提示，不自动切换**（胶囊里数字与进度环会变色：蓝=品牌色 / 琥珀=轮数 / 红=压缩次数）。可在胶囊旁 ⚙ 面板或 `POST /api/dsh-auto-handoff/ui-config` 修改（持久化到 `$DSH_HOME/auto-handoff-ui.json`）。
 - **自动（需显式开启）**：`autoHandoff: true` 时，同一会话满足「已完成轮数 ≥ `minRounds`（默认 3）」且「上下文占用 ≥ `threshold`（默认 0.8）」会自动交接一次。占用 = `contextPressure` 投影的 `projectedTokens ?? pressureTokens`（与 GUI 状态栏同一份投影；没有该投影时退回 `tokenMeter.measure().totalTokens`）÷ 该会话当前 provider/model 的 `contextWindow`。
 
 补充约束：同一会话只交接一次（生成的新会话会再次受同一规则约束，因此长对话会一轮一轮自动续接）；有未结束的 turn、正在压缩、收件箱里还有排队输入、或会话正在跑自动 goal 时跳过本次，等下一个 `turn/end`；摘要写完后源会话又动了则整次作废重来；源会话只读，不修改、不取消、不迁移。

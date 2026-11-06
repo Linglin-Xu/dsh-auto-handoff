@@ -71,7 +71,7 @@ curl.exe -s http://127.0.0.1:3080/api/dsh-auto-handoff/status
 ```
 
 - 返回 JSON 且 `"ok": true` → 宿主半边正常
-- 页面上输入框底栏出现 `N 轮 · XX% · 压缩 N` + 「交接」 → 客户端正常
+- 页面上输入框底栏出现「环形进度 + `N 轮 · XX%`」胶囊与「交接」按钮 → 客户端正常（到阈值时会追加「压缩 N」「已排队」等标签）
 - 404 → 宿主没加载：检查 profile 的 `dependencies` 与 `dsh.profile.bundles` 是否都有 `dsh-auto-handoff`，确认 `dsh web` 真的重启过
 - 接口 ok 但底栏没有胶囊 → 正常降级（见兼容表），交接仍可用：`POST /api/dsh-auto-handoff/queue {"sessionId":"..."}`
 
