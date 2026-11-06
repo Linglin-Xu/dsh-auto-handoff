@@ -1,6 +1,6 @@
 {
   "name": "dsh-auto-handoff",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "DSH 会话交接（默认手动）：一键把当前对话压缩成交接文档、带上未完成的任务与后台任务清单，在新会话里继续；输入框底栏常驻「轮数 / 占用 / 压缩次数」状态胶囊、阈值提醒与设置面板。Manual-first session handoff for DeepSeek Harness.",
   "keywords": [
     "dsh",
@@ -41,6 +41,8 @@
   "scripts": {
     "test": "powershell -ExecutionPolicy Bypass -File test/run-tests.ps1",
     "test:handover": "node test/handover.test.mjs",
+    "test:checkpoint": "node test/checkpoint.test.mjs",
+    "test:metrics": "node test/metrics.test.mjs",
     "test:smoke": "node test/smoke.mjs",
     "test:host": "node test/host-check.mjs"
   },

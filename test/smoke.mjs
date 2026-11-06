@@ -16,13 +16,17 @@ import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import vm from 'node:vm'
+import { registerResolver } from './resolve-install.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
 const profileDir = process.env.DSH_PROFILE_DIR ?? join(homedir(), '.dsh', 'profiles', 'web')
 const anchor = join(profileDir, 'index.js')
+// The plugin's own modules import `@deepseek-ai/*` by bare specifier; the hook
+// retries those lookups from the harness install (see resolve-install.mjs).
+registerResolver()
 
 const failures = []
 function check(label, condition, detail) {
@@ -53,20 +57,32 @@ for (const name of ['BlockAssembler', 'createUserMessage', 'contentHasImage']) {
 const z = require('@deepseek-ai/schemastery').default ?? require('@deepseek-ai/schemastery')
 check('schemastery default export is an object schema factory', z !== undefined && typeof z.object === 'function')
 
-console.log('\n[2/3] settings schema builds and applies its defaults')
+console.log('\n[2/3] the real settings schema builds, floors its defaults and clamps')
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 check('package.json name is dsh-auto-handoff', manifest.name === 'dsh-auto-handoff')
 check('dsh.bundle.patch is declared', manifest.dsh?.bundle?.patch === './cordis.patch.yml')
 check('dsh.client.platform is web', manifest.dsh?.client?.platform === 'web')
 check('./client export is declared', manifest.exports?.['./client'] !== undefined)
-const schema = z.object({
-  enabled: z.boolean().default(true),
-  threshold: z.number().default(0.8),
-  minRounds: z.number().default(3),
-  provider: z.string().default(''),
-})
-const resolved = schema({})
-check('schema fills defaults', resolved.enabled === true && resolved.threshold === 0.8 && resolved.minRounds === 3)
+// The settings namespace is what the harness renders and persists: a schema that
+// cannot build turns `dsh web` into a startup failure, so it is built here from
+// the real module rather than a copy of it.
+const config = await import(pathToFileURL(join(root, 'lib', 'config.js')).href)
+const resolvedSchema = config.SCHEMA({})
+for (const [key, value] of Object.entries(config.DEFAULTS)) {
+  check(`schema default ${key}`, JSON.stringify(resolvedSchema[key]) === JSON.stringify(value),
+    `schema ${JSON.stringify(resolvedSchema[key])} vs DEFAULTS ${JSON.stringify(value)}`)
+}
+check('threshold defaults to 80%', resolvedSchema.threshold === 0.8)
+check('automatic handoff is OFF by default (manual mode)', resolvedSchema.autoHandoff === false)
+check('the goal guard is ON by default', resolvedSchema.guardGoal === true)
+check('the summary falls back by default', resolvedSchema.summaryMode === 'auto')
+const clamped = config.normalizeConfig({ threshold: 5, minRounds: -2, maxTokens: 1e9, summaryMode: 'nope' })
+check('normalizeConfig clamps the numeric bounds', clamped.threshold === 1 && clamped.minRounds === 0
+  && clamped.maxTokens === 32768, JSON.stringify({ threshold: clamped.threshold, minRounds: clamped.minRounds, maxTokens: clamped.maxTokens }))
+check('normalizeConfig drops an unknown enum value', clamped.summaryMode === 'auto')
+check('normalizeConfig keeps the widget-owned keys', config.pickUiConfig({
+  promptRounds: 4, promptPercent: 0.5, promptCompactions: 1, autoHandoff: true, junk: 1,
+}).promptRounds === 4)
 check('patch file exists', readFileSync(join(root, manifest.dsh.bundle.patch), 'utf8').includes('dsh-auto-handoff'))
 
 console.log('\n[3/3] client half registers the declared bundle id')
@@ -97,6 +113,16 @@ check('bundle id matches the package name', registration?.id === manifest.name, 
 const exports = registration?.factory(() => { throw new Error('client half should require nothing') })
 check('client half exports apply()', typeof exports?.apply === 'function')
 check('client half exports inject[]', Array.isArray(exports?.inject) && exports.inject.length > 0)
+// The client must survive a host without the services it wants (an older DSH,
+// or a bundle loaded outside the conversation view) instead of breaking the GUI.
+check('client apply degrades without its services', (() => {
+  try {
+    exports.apply({ get: () => undefined, effect: (run) => run() })
+    return true
+  } catch {
+    return false
+  }
+})())
 
 console.log('')
 if (failures.length > 0) {

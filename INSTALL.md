@@ -11,8 +11,8 @@ DSH（DeepSeek Harness）的会话交接插件：**默认手动**，点输入框
 
 | 档位 | DSH 版本 | 状态 |
 | --- | --- | --- |
-| ✅ 实测 | **0.2.0-rc.2** | 宿主 + 底栏 UI 全流程跑过 |
-| 🟢 完整预期 | **0.1.7-alpha.1 ~ 0.2.x**（含 0.2.1-alpha.*） | 用到的 API 全存在，`engines` 已声明；除 rc.2 外未实测 |
+| ✅ 实测 | **0.2.1-rc.3**、**0.2.0-rc.2** | 宿主 + 底栏 UI 全流程跑过 |
+| 🟢 完整预期 | **0.1.7-alpha.1 ~ 0.2.x**（含 0.2.1-alpha.*） | 用到的 API 全存在，`engines` 已声明；除上面两个版本外未实测 |
 | 🟡 降级可用 | 0.1.0-rc.7 ~ 0.1.6 | 宿主半边正常；客户端缺 `[data-conversation-session]`，底栏胶囊显示「未就绪」，交接用 `POST /queue` 手动传 sessionId |
 | 🔴 不保证 | ≤ 0.1.0-rc.6 | 缺 `ctx.jobs` / `contextPressure` / composer dock：后台任务不继承、占用未知、UI 退化 |
 
@@ -36,10 +36,10 @@ dsh plugin --profile web add github:Linglin-Xu/dsh-auto-handoff
 
 ### 方式 3：本地 tgz（离线分发）
 
-拿到 `dsh-auto-handoff-0.3.1.tgz` 后：
+拿到 `dsh-auto-handoff-0.4.0.tgz` 后：
 
 ```powershell
-dsh plugin --profile web add file:C:\path\to\dsh-auto-handoff-0.3.1.tgz
+dsh plugin --profile web add file:C:\path\to\dsh-auto-handoff-0.4.0.tgz
 ```
 
 ### 方式 4：本地目录（开发用，改代码即时生效）
@@ -94,8 +94,10 @@ curl.exe -s http://127.0.0.1:3080/api/dsh-auto-handoff/status
 | 底栏没有胶囊，但 `/status` 正常 | DSH 客户端结构变化或旧版本 → 降级；用 HTTP 接口交接 |
 | 点「交接」没反应/提示会话未就绪 | 旧版 DSH 缺 `[data-conversation-session]`；升级 DSH |
 | 提示"已经 N 轮（阈值 2 轮）" | 你之前把 `promptRounds` 存成了 2；点 ⚙ 改大 |
-| 交接返回 `409 not-quiescent` | 源会话正在跑/有排队输入；等这一轮结束或稍后重试 |
-| 交接返回 `502` | 摘要模型调用失败（路由/额度/超时），看返回值里的 message |
+| 交接返回 `409 not-quiescent` | 源会话正在跑/有排队输入；看 `error.reason`（`source-open-turn` / `source-compacting` / `pending-input` / `source-busy` / `source-moved` / `goal-active`），等这一轮结束或稍后重试 |
+| 交接返回 `409 goal-active` | 会话正在跑自动 goal：先暂停/完成 goal，或确实要交接时带 `{"force": true}` |
+| 交接返回 `502` | 摘要模型调用失败（路由/额度/超时）；只在 `summaryMode: llm` 时会这样，默认 `auto` 会降级成本地摘录 |
+| 交接完成但文档很简略 | 摘要降级了：看 `/status` 的 `handoffs[].summarySource` / `degraded`，或把 `summaryMode` 改成 `llm` 强制要求模型摘要 |
 | 交接后新会话打不开/日志损坏 | 旧版本 bug；本版本已修（checkpoint 走 agent 收件箱，不再写坏 surface） |
 
 ## 八、升级 / 卸载
@@ -117,8 +119,17 @@ Remove-Item -Force "$env:USERPROFILE\.dsh\auto-handoff-ui.json"
 
 ## 十、English quick reference
 
-- **Requires** DSH `>=0.1.7-alpha.1 <0.3.0` (tested on `0.2.0-rc.2`), Node `^22.19 || >=24`.
+- **Requires** DSH `>=0.1.7-alpha.1 <0.3.0` (tested on `0.2.1-rc.3` and `0.2.0-rc.2`), Node `^22.19 || >=24`.
 - **Install**: `dsh plugin --profile web add dsh-auto-handoff`, then copy `skill/` into `~/.dsh/skills/auto-handoff`, restart `dsh web`, hard-refresh the browser.
 - **Use**: click "交接" in the composer footer (manual by default), or `POST /api/dsh-auto-handoff/queue {"sessionId"}`.
 - **Verify**: `curl http://127.0.0.1:3080/api/dsh-auto-handoff/status` → `{"ok":true}`.
-- **Privacy**: the recent conversation (capped by `maxInputChars`) is sent once to the configured model to build the handoff summary.
+- **Privacy**: the recent conversation (capped by `maxInputChars`) is sent once to the configured model to build the handoff summary (`summaryMode: digest` sends nothing).
+
+## 十一、二次开发 / 跑测试
+
+```powershell
+npm test          # 五套测试；@deepseek-ai/* 由 test/resolve-install.mjs 的解析钩子定位
+$env:DSH_INSTALL  # 找不到依赖时，指向已安装的 @deepseek-ai/dsh 目录
+```
+
+改代码即时生效：用方式 4（`link:`）安装，改完重启 `dsh web` + 硬刷新即可；只改 `lib/client.js` 时刷新页面就够（客户端 bundle 不打缓存）。

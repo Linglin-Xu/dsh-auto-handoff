@@ -1,19 +1,23 @@
-# dsh-auto-handoff v0.3.1 — 手动交接 + 输入框底栏状态（修复空回放）
+# dsh-auto-handoff v0.4.0 — 重写：降级、goal 守卫、一条消息开场
 
 **默认手动**：点输入框底栏的「交接」按钮，把当前对话压缩成交接文档（含未完成任务、已改文件、后台任务清单），在新会话里继续。正在跑的那一轮会自动排队到结束，**不会被打断**。
 
-## 本次修复（0.3.1）
+这一版按「需求目的不变、实现重来」重写：目标和交互完全保留，内部拆成可单测的模块，并修掉三类此前只能靠运气的地方。
 
-- 🐛 **「交接失败：no replayable messages in the conversation」不再出现**：摘要输入改为锚定「最近一条 user 消息」（在字符预算内挑选最早的 user 消息），不再因为末尾全是大段工具结果、预算先耗尽而把所有消息裁空；工具调用/结果始终成对。
-- 🐛 **即使 surface 里已经没有 user 消息**（被完全压缩、或只剩工具/助手内容），也会跳过摘要模型调用，直接用「任务块（待办 / 已改文件 / 最后一个请求）」完成交接，并在 `/status` 的 handoff 记录里标 `summarized: false`。
+## 本次重点（0.4.0）
 
-- 🐛 **「交接失败：Messages tool calls need immediate results」**：带图片的消息（截图类工具结果很常见）不再整条丢弃，改为把图片块替换成文字占位，工具调用/结果保持一一配对；并在最后加了一层配对净化，孤立调用或孤立结果会被剔除，而不是让整次交接失败。
+- 🛟 **摘要永远有结果**：新增 `summaryMode: auto | llm | digest`。默认 `auto`——模型调用失败时降级成**确定性本地摘录**，交接照样完成，`/status` 里能看到 `summarySource: "digest"` 和 `degraded` 的原因。想要「宁可不交接也要模型摘要」就设 `llm`。
+- 🎯 **不再劈开 goal 会话**：会话正在跑自动 goal 时拒绝交接（`guardGoal: true`）。自动模式跳过并记 `goal-active`，手动按钮得到 `409`，确实要交接时带 `{"force": true}`。
+- ✉️ **续跑只用一条消息**：需要续跑时，交接文档**本身就是**新会话的第一条 prompt——不再是「先排队文档、再发一条『继续』」两条消息、两次唤醒。不需要续跑时仍进收件箱（持久化，composer 里显示为队列行）。
+- 🔁 **切换不会被轮询吃掉**：`/status?sessionId=` 附带 `navigation` 且**不消费**它；浏览器半边只保留一个 2 秒轮询，丢帧、刷新都能补上切换。
+- ⚡ **轮询变便宜**：轮数/压缩计数按 `snapshotEvents()` 增量折叠（不再每次全量重扫）；占用退回 `measure()` 时缓存 5 秒，`resolveModelInfo` 缓存 10 分钟；阈值文件只在启动读一次；悬浮条只在位置真的变化时写样式。
 
-- 🐛 **「交接失败：summarization truncated at the token cap」**：摘要输出上限 2048 → **4096**；命中上限时不再判失败，而是保留已生成的摘要并在交接文档里标注「摘要因输出长度上限被截断」，交接照常完成（`/status` 记录 `truncated: true`）；超大回放会按单块 6000 字符裁剪文本，保持工具调用/结果配对。
+## 修复
 
-- 📈 **交接成本可见**：每次交接的摘要调用都会把 `usage`（输入/输出/cacheRead token）记进 `/status` 的 handoff 记录；超大回放按单块 3000 字符裁剪，最坏情况也有上界。
-
-- 💬 **交接完成提示**：右上角 toast 显示本次摘要的输入/输出 token（含缓存读取），`/status` 的 `handoffs[].usage` 同步记录。
+- 新建会话期间源会话又动了却照样投递 → 建会话后再核对一次内容指纹，过期就一个字节都不投递。
+- 摘要调用失败直接把错误抛给用户 → 默认降级；严格模式把 provider 原文放进 `error.message`。
+- 陈旧的压缩锁会让 `compacting` 永久为真（之后再也交接不了）→ 下一轮边界自动解除。
+- 移除从未被读取的死配置 `cooldownMs`。
 
 ## 功能亮点
 
@@ -21,17 +25,18 @@
 - 📊 **状态胶囊**：`压缩 N · N 轮 · XX%`，优先级 **压缩 > 轮 > 占用**（红 > 琥珀 > 蓝），到阈值弹一次提示（只提示，不自动切换）
 - ⚙️ **阈值面板**：轮数 / 占用% / 压缩次数，保存到 `$DSH_HOME/auto-handoff-ui.json`，重启不丢
 - 🧵 **后台任务继承**：交接文档快照运行中的后台 job 与存活子会话；交接后监听源会话 job 事件，结束时把终态 + 输出尾巴转发到新会话
-- 🛡️ **时序保证**：只在源会话静默时交接（无未结束 turn / 无压缩 / 无排队输入），摘要前后各校验一次内容指纹，过期就整次作废重来
-- 🔧 **兼容**：DSH `>=0.1.7-alpha.1 <0.3.0`（实测 `0.2.0-rc.2`）；`session.events`、`tokenMeter` 旧字段、`agent.inbox.append` 都有兜底
+- 🛡️ **时序保证**：只在源会话静默时交接（无未结束 turn / 无压缩 / 无排队输入 / goal 未在跑），摘要后与建会话后各校验一次内容指纹，过期就整次作废重来
+- 🧪 **可测试**：`npm test` 五套（37 项纯函数 + 静态自检 + ~110 项宿主半边集成检查），用 Node 解析钩子定位 `@deepseek-ai/*`，不需要管理员权限
+- 🔧 **兼容**：DSH `>=0.1.7-alpha.1 <0.3.0`（实测 `0.2.1-rc.3` 与 `0.2.0-rc.2`）；`session.events`、`tokenMeter` 旧字段、`agent.inbox.append` 都有兜底
 
 ## 安装
 
 ```powershell
-# 从 GitHub（main 分支已含 0.3.1 修复）
+# 从 GitHub（main 分支已含 0.4.0）
 dsh plugin --profile web add github:Linglin-Xu/dsh-auto-handoff
 
-# 或下载本页附件 dsh-auto-handoff-0.3.1.tgz
-dsh plugin --profile web add file:C:\path\dsh-auto-handoff-0.3.1.tgz
+# 或下载本页附件 dsh-auto-handoff-0.4.0.tgz
+dsh plugin --profile web add file:C:\path\dsh-auto-handoff-0.4.0.tgz
 ```
 
 装完三步：**复制技能**（包内 `skill/` → `~/.dsh/skills/auto-handoff/`）、**重启 `dsh web`**、**浏览器 Ctrl+Shift+R**。
@@ -48,7 +53,7 @@ curl.exe -s http://127.0.0.1:3080/api/dsh-auto-handoff/status
 
 | 档位 | DSH 版本 |
 | --- | --- |
-| ✅ 实测 | 0.2.0-rc.2 |
+| ✅ 实测 | 0.2.1-rc.3、0.2.0-rc.2 |
 | 🟢 完整预期 | 0.1.7-alpha.1 ~ 0.2.x |
 | 🟡 降级可用 | 0.1.0-rc.7 ~ 0.1.6（客户端 UI 受限，交接仍可走 HTTP） |
 | 🔴 不保证 | ≤ 0.1.0-rc.6 |
@@ -57,6 +62,6 @@ curl.exe -s http://127.0.0.1:3080/api/dsh-auto-handoff/status
 
 ## 隐私
 
-生成摘要时会把源会话最近一段消息（默认最多 2 万字符）发给你配置的模型；后台任务快照会写进交接文档并进入新会话上下文。插件无遥测，不写 `$DSH_HOME` 之外的路径。
+生成摘要时会把源会话最近一段消息（默认最多 2 万字符）发给你配置的模型（`summaryMode: digest` 时完全不发）；后台任务快照会写进交接文档并进入新会话上下文。插件无遥测，不写 `$DSH_HOME` 之外的路径。
 
 **完整变更记录**：[CHANGELOG.md](CHANGELOG.md)

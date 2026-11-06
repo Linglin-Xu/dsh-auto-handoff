@@ -102,6 +102,23 @@ check('foldLastUserText skips messages this plugin injected', () => {
   assert.equal(foldLastUserText(events), '把登录页做完')
 })
 
+check('foldLastUserText skips a checkpoint that was delivered as a real prompt', () => {
+  // The continue path hands the checkpoint to `sessionController.prompt()`, so
+  // the message carries the user's own source kind — it must still not be
+  // mistaken for the user's last request.
+  const events = [
+    { type: 'user/message', data: { content: [{ type: 'text', text: '修复分页' }] } },
+    {
+      type: 'user/message',
+      data: {
+        source: { kind: 'user-rpc' },
+        content: [{ type: 'text', text: '以下是一条自动生成的上文交接摘要…\n<auto-handoff-checkpoint>\n## 目标\n…' }],
+      },
+    },
+  ]
+  assert.equal(foldLastUserText(events), '修复分页')
+})
+
 check('foldLastUserText truncates an oversized request', () => {
   const long = 'x'.repeat(2000)
   const text = foldLastUserText([{ type: 'user/message', data: { content: [{ type: 'text', text: long }] } }])
